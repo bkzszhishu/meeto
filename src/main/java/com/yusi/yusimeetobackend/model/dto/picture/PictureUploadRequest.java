@@ -18,4 +18,9 @@ public class PictureUploadRequest implements Serializable {
      * 前端传入 id 用于修改图片，第一次是上传，以后就是修改
      */
     private Long id;
+
+    /**
+     * 支持通过 url 上传图片
+     */
+    private String fileUrl;
 }

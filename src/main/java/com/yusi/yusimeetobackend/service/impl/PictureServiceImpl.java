@@ -10,6 +10,9 @@ import com.yusi.yusimeetobackend.exception.BusinessException;
 import com.yusi.yusimeetobackend.exception.ErrorCode;
 import com.yusi.yusimeetobackend.exception.ThrowUtils;
 import com.yusi.yusimeetobackend.manager.FileManager;
+import com.yusi.yusimeetobackend.manager.upload.FilePictureUpload;
+import com.yusi.yusimeetobackend.manager.upload.PictureUploadTemplate;
+import com.yusi.yusimeetobackend.manager.upload.UrlPictureUpload;
 import com.yusi.yusimeetobackend.model.dto.file.UploadPictureResult;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureQueryRequest;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureReviewRequest;
@@ -49,8 +52,14 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Resource
     private UserService userService;
 
+    @Resource
+    private FilePictureUpload filePictureUpload;
+
+    @Resource
+    private UrlPictureUpload urlPictureUpload;
+
     @Override
-    public PictureVO uploadPicture(MultipartFile multipartFile, PictureUploadRequest pictureUploadRequest, User loginUser) {
+    public PictureVO uploadPicture(Object inputSource, PictureUploadRequest pictureUploadRequest, User loginUser) {
         //校验：如果用户未登录，则不允许上传图片
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
         // 用于判断是新增还是更新图片
@@ -72,7 +81,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         // 上传图片，得到信息
         // 按照用户 id 划分目录，这里还要划分是私有的还是公有的，因为后面的图片管理会分是私有的图片还是公有的
         String uploadPathPrefix = String.format("public/%s", loginUser.getId());
-        UploadPictureResult uploadPictureResult = fileManager.uploadPicture(multipartFile, uploadPathPrefix);
+        //根据 inputSource 的类型区分上传方式
+        PictureUploadTemplate pictureUploadTemplate = filePictureUpload; //默认是通过文件上传
+        if (inputSource instanceof String) {
+            pictureUploadTemplate = urlPictureUpload; //如果 inputSource 是 String 类型，说明是通过 url 上传
+        }
+        UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(inputSource, uploadPathPrefix);
         // 构造要入库的图片信息
         Picture picture = new Picture();
         picture.setUrl(uploadPictureResult.getUrl());
