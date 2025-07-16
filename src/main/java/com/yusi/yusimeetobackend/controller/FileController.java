@@ -44,14 +44,14 @@ public class FileController {
     @PostMapping("/test/upload")
     public BaseResponse<String> testUploadFile(@RequestPart("file") MultipartFile multipartFile) {
         // 文件目录
-        String filename = multipartFile.getOriginalFilename();
-        String filepath = String.format("/test/%s", filename);
+        String filename = multipartFile.getOriginalFilename(); //获取文件名字
+        String filepath = String.format("/test/%s", filename); //构造文件路径
         File file = null;
         try {
             // 上传文件
-            file = File.createTempFile(filepath, null);
-            multipartFile.transferTo(file);
-            cosManager.putObject(filepath, file);
+            file = File.createTempFile(filepath, null); //先在本地创建临时文件用于缓存
+            multipartFile.transferTo(file); //将用户上传的文件写给本地临时文件
+            cosManager.putObject(filepath, file); //将文件路径作为key，上传 file
             // 返回可访问地址
             return ResultUtils.success(filepath);
         } catch (Exception e) {

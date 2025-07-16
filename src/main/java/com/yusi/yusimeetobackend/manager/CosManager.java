@@ -5,6 +5,7 @@ import com.qcloud.cos.model.COSObject;
 import com.qcloud.cos.model.GetObjectRequest;
 import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.model.PutObjectResult;
+import com.qcloud.cos.model.ciModel.persistence.PicOperations;
 import com.yusi.yusimeetobackend.config.CosClientConfig;
 import org.springframework.stereotype.Component;
 
@@ -19,8 +20,7 @@ public class CosManager {
   
     @Resource  
     private COSClient cosClient;
-  
-    // ... 一些操作 COS 的方法
+
     /**
      * 上传对象
      *
@@ -41,6 +41,26 @@ public class CosManager {
     public COSObject getObject(String key) {
         GetObjectRequest getObjectRequest = new GetObjectRequest(cosClientConfig.getBucket(), key);
         return cosClient.getObject(getObjectRequest);
+    }
+
+    /**
+     * 上传图片对象，并返回上传后的图片信息
+     * @param key 文件路径
+     * @param file 文件
+     * @return
+     */
+    public PutObjectResult putPictureObject(String key, File file) {
+        PutObjectRequest putObjectRequest = new PutObjectRequest(cosClientConfig.getBucket(), key, file);
+
+        //对图片进行处理
+        //这里先获取图片的基本信息
+        PicOperations picOperations = new PicOperations();
+        //表示会返回原图信息
+        picOperations.setIsPicInfo(1);
+        //构造处理参数
+        putObjectRequest.setPicOperations(picOperations);
+        //上传图片
+        return cosClient.putObject(putObjectRequest);
     }
 
 
