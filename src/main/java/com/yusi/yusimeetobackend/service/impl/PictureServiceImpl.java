@@ -16,6 +16,7 @@ import com.yusi.yusimeetobackend.manager.upload.UrlPictureUpload;
 import com.yusi.yusimeetobackend.model.dto.file.UploadPictureResult;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureQueryRequest;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureReviewRequest;
+import com.yusi.yusimeetobackend.model.dto.picture.PictureUploadByBatchRequest;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureUploadRequest;
 import com.yusi.yusimeetobackend.model.entity.Picture;
 import com.yusi.yusimeetobackend.model.entity.User;
@@ -25,12 +26,19 @@ import com.yusi.yusimeetobackend.model.vo.UserVO;
 import com.yusi.yusimeetobackend.service.PictureService;
 import com.yusi.yusimeetobackend.mapper.PictureMapper;
 import com.yusi.yusimeetobackend.service.UserService;
+import lombok.extern.slf4j.Slf4j;
+import net.bytebuddy.implementation.bytecode.Throw;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +50,7 @@ import java.util.stream.Collectors;
 * @description 针对表【picture(图片)】的数据库操作Service实现
 * @createDate 2025-07-15 17:47:54
 */
+@Slf4j
 @Service
 public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     implements PictureService{
@@ -58,6 +67,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Resource
     private UrlPictureUpload urlPictureUpload;
 
+    /**
+     * 上传图片
+     * @param inputSource 文件上传，可以通过源文件上传，也可以通过 url 上传
+     * @param pictureUploadRequest 上传图片的参数
+     * @param loginUser 当前登录用户
+     * @return
+     */
     @Override
     public PictureVO uploadPicture(Object inputSource, PictureUploadRequest pictureUploadRequest, User loginUser) {
         //校验：如果用户未登录，则不允许上传图片
@@ -67,7 +83,6 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         if (pictureUploadRequest != null) {
             pictureId = pictureUploadRequest.getId();
         }
-        // 如果是更新图片，需要校验图片是否存在
         // 如果是更新图片，需要校验图片是否存在
         if (pictureId != null) {
             Picture oldPicture = this.getById(pictureId);
@@ -286,6 +301,72 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
     }
 
+    /**
+     * 管理员批量抓取和上传图片
+     * @param pictureUploadByBatchRequest
+     * @param loginUser
+     * @return
+     */
+    @Override
+    public Integer uploadPictureByBatch(PictureUploadByBatchRequest pictureUploadByBatchRequest, User loginUser) {
+        //获取搜索关键词
+        String searchText = pictureUploadByBatchRequest.getSearchText();
+        //格式化数量
+        Integer count = pictureUploadByBatchRequest.getCount();
+        ThrowUtils.throwIf(count > 30, ErrorCode.PARAMS_ERROR, "一次最多抓取 30 张图片");
+        //要抓取的地址
+        String fetchUrl = String.format("https://cn.bing.com/images/async?q=%s&mmasync=1", searchText);
+        Document document;
+        try {
+            //使用 Jsoup 向 fetchUrl 发送请求，获取 html 文档
+            document = Jsoup.connect(fetchUrl).get();
+        } catch (IOException e) {
+            log.error("获取页面失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "获取页面失败");
+        }
+        //解析文档，获取 dgControl 标签
+        Element div = document.getElementsByClass("dgControl").first();
+        if (ObjUtil.isNull(div)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "获取元素失败");
+        }
+        //解析文档，获取 img 标签
+        Elements imgElementList = div.select("img.mimg");
+        int uploadCount = 0;
+        //遍历每一个 img 标签
+        for (Element imgElement : imgElementList) {
+            //获取 img 标签的 src
+            String fileUrl = imgElement.attr("src");
+            if (StrUtil.isBlank(fileUrl)) {
+                log.info("当前链接为空，已跳过: {}", fileUrl);
+                continue;
+            }
+            //处理图片上传地址，防止出现转义问题
+            //对于图片地址：https://tse2-mm.cn.bing.net/th/id/OIP-C.3__O2HYKT2RScigwo81vSQAAAA?w=248&h=180&c=7&r=0&o=7&dpr=1.3&pid=1.7&rm=3
+            //只保留：https://tse2-mm.cn.bing.net/th/id/OIP-C.3__O2HYKT2RScigwo81vSQAAAA
+            int questionMarkIndex = fileUrl.indexOf("?");
+            if (questionMarkIndex > -1) {
+                fileUrl = fileUrl.substring(0, questionMarkIndex);
+            }
+            //上传图片
+            PictureUploadRequest pictureUploadRequest = new PictureUploadRequest();
+            try {
+                //将图片上传并写入数据库后返回上传后的图片信息
+                PictureVO pictureVO = this.uploadPicture(fileUrl, pictureUploadRequest, loginUser);
+                log.info("图片上传成功，图片 id: {}", pictureVO.getId());
+                //已上传数量 +1
+                uploadCount++;
+            } catch (Exception e) {
+                //图片上传失败，跳过该图片
+                log.error("图片上传失败，图片 url: {}", fileUrl);
+                continue;
+            }
+            //如果已上传数量大于规定数量，跳出循环
+            if (uploadCount >= count) {
+                break;
+            }
+        }
+        return uploadCount;
+    }
 
 
 }
