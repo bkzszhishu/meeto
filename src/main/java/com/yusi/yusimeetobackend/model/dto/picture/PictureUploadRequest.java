@@ -29,4 +29,6 @@ public class PictureUploadRequest implements Serializable {
      */
     private String picName;
 
+
+
 }

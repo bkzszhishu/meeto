@@ -101,10 +101,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         if (inputSource instanceof String) {
             pictureUploadTemplate = urlPictureUpload; //如果 inputSource 是 String 类型，说明是通过 url 上传
         }
+        //返回上传后的图片的信息
         UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(inputSource, uploadPathPrefix);
-        // 构造要入库的图片信息
+
+        // 拿到返回的上传后的图片的信息后就要把上传完的图片存入到数据库，构造要入库的图片信息
         Picture picture = new Picture();
+        //设置图片在 COS 的 url
         picture.setUrl(uploadPictureResult.getUrl());
+        //设置缩略图的 url
+        picture.setThumbnailUrl(uploadPictureResult.getThumbnailUrl());
         String picName = uploadPictureResult.getPicName();
         if (pictureUploadRequest != null && StrUtil.isNotBlank(pictureUploadRequest.getPicName())) {
             picName = pictureUploadRequest.getPicName();

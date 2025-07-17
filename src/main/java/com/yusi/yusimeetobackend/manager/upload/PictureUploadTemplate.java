@@ -60,9 +60,15 @@ public abstract class PictureUploadTemplate {
             ProcessResults processResult = putObjectResult.getCiUploadResult().getProcessResults();
             List<CIObject> objectList = processResult.getObjectList();
             if (CollUtil.isNotEmpty(objectList)) {
+                //获取上传后的压缩后的图片的信息
                 CIObject compressedCiObject = objectList.get(0);
-                //封装压缩图返回结果
-                return buildResult(originFilename, compressedCiObject);
+                CIObject thumbnailCiObject = compressedCiObject;
+                if (objectList.size() > 1) {
+                    //获取上传后的缩略图的图片的信息
+                    thumbnailCiObject = objectList.get(1);
+                }
+                //封装压缩图和缩略图的返回结果
+                return buildResult(originFilename, compressedCiObject, thumbnailCiObject);
             }
             // 5. 封装返回结果  
             return buildResult(originFilename, file, uploadPath, imageInfo);  
@@ -73,6 +79,24 @@ public abstract class PictureUploadTemplate {
             // 6. 清理临时文件  
             deleteTempFile(file);  
         }  
+    }
+
+    private UploadPictureResult buildResult(String originFilename, CIObject compressedCiObject, CIObject thumbnailCiObject) {
+        UploadPictureResult uploadPictureResult = new UploadPictureResult();
+        int picWidth = compressedCiObject.getWidth();
+        int picHeight = compressedCiObject.getHeight();
+        double picScale = NumberUtil.round(picWidth * 1.0 / picHeight, 2).doubleValue();
+        uploadPictureResult.setPicName(FileUtil.mainName(originFilename));
+        uploadPictureResult.setPicWidth(picWidth);
+        uploadPictureResult.setPicHeight(picHeight);
+        uploadPictureResult.setPicScale(picScale);
+        uploadPictureResult.setPicFormat(compressedCiObject.getFormat());
+        uploadPictureResult.setPicSize(compressedCiObject.getSize().longValue());
+        //设置图片为压缩后的地址，因为是这里要返回给前端给前端显示，所以要返回上传后的图片的地址，之前是返回的 png 等的地址
+        uploadPictureResult.setUrl(cosClientConfig.getHost() + "/" + compressedCiObject.getKey());
+        //设置缩略图的地址返回给前端
+        uploadPictureResult.setThumbnailUrl(cosClientConfig.getHost() + "/" + thumbnailCiObject.getKey());
+        return uploadPictureResult;
     }
 
     /**
