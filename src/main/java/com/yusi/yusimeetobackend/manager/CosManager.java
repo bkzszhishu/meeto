@@ -79,6 +79,7 @@ public class CosManager {
             thumbnailRule.setFileId(thumbnailKey);
             //添加缩放规则
             thumbnailRule.setRule(String.format("imageMogr2/thumbnail/%sx%s>", 256, 256));
+            thumbnailRule.setBucket(cosClientConfig.getBucket());
             rules.add(thumbnailRule);
         }
 

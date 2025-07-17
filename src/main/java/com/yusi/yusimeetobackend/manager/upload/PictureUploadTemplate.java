@@ -53,7 +53,7 @@ public abstract class PictureUploadTemplate {
             // 处理文件来源（本地或 URL）  
             processFile(inputSource, file);  
   
-            // 4. 上传图片到对象存储  
+            // 4. 上传图片到对象存储
             PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
             ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
             //获取压缩后的图片的信息

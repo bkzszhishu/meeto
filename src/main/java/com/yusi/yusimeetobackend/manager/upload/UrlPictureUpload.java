@@ -8,6 +8,8 @@ import com.yusi.yusimeetobackend.exception.ThrowUtils;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.util.Arrays;
+import java.util.List;
 
 @Service
 public class UrlPictureUpload extends PictureUploadTemplate {  
@@ -15,7 +17,7 @@ public class UrlPictureUpload extends PictureUploadTemplate {
     protected void validPicture(Object inputSource) {  
         String fileUrl = (String) inputSource;  
         ThrowUtils.throwIf(StrUtil.isBlank(fileUrl), ErrorCode.PARAMS_ERROR, "文件地址不能为空");
-        // ... 跟之前的校验逻辑保持一致  
+        //可以加入其它校验
     }  
   
     @Override  
