@@ -265,7 +265,7 @@ public class PictureController {
      * @param request
      * @return
      */
-    @PostMapping("/list/page/vo/cache")
+    /* @PostMapping("/list/page/vo/cache")
     public BaseResponse<Page<PictureVO>> listPictureVOByPageWithCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest request) {
         //获取当前页号
         long current = pictureQueryRequest.getCurrent();
@@ -299,6 +299,60 @@ public class PictureController {
         String cacheValue = JSONUtil.toJsonStr(pictureVOPage);
         LOCAL_CACHE.put(cacheKey, cacheValue);
 
+        //返回结果
+        return ResultUtils.success(pictureVOPage);
+    } */
+
+    /**
+     * 利用多级缓存查询数据
+     * @param pictureQueryRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/list/page/vo/cache")
+    public BaseResponse<Page<PictureVO>> listPictureVOByPageWithCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest request) {
+        //获取当前页号
+        long current = pictureQueryRequest.getCurrent();
+        //获取每页大小
+        long size = pictureQueryRequest.getPageSize();
+        //限制爬虫
+        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        //普通用户默认只能查看已经过审的数据
+        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
+
+        //多级缓存
+        //1. 构建缓存 key
+        //这里直接将前端提供的查询条件作为 key，因为太多了，所以要压缩，转为 JSON 字符串
+        String queryCondition = JSONUtil.toJsonStr(pictureQueryRequest);
+        String hashKey = DigestUtils.md5DigestAsHex(queryCondition.getBytes());
+        //构造缓存 key，这里要分级，不同的业务或者不同的项目可以区分
+        String cacheKey = "meeto:listPictureVOByPage:" + hashKey;
+        //2. 先从 Caffeine 缓存中查询，本地缓存没有命中就去查询 Redis 分布式缓存，如果命中则直接返回本地缓存的数据
+        String cachedValue = LOCAL_CACHE.getIfPresent(cacheKey);
+        if (cachedValue != null) { //缓存命中
+            //返回结果
+            Page<PictureVO> cachedPage = JSONUtil.toBean(cachedValue, Page.class);
+            return ResultUtils.success(cachedPage);
+        }
+        //3. 本地缓存未命中，查询 Redis 分布式缓存，如果命中则直接返回 Redis 缓存的数据并更新本地缓存，如果未命中则查询数据库
+        ValueOperations<String, String> valueOps = stringRedisTemplate.opsForValue();
+        cachedValue = valueOps.get(cacheKey);
+        if (cachedValue != null) { //Redis 缓存命中，返回数据，并更新本地缓存
+            //更新本地缓存
+            LOCAL_CACHE.put(cacheKey, cachedValue);
+            Page<PictureVO> cachedPage = JSONUtil.toBean(cachedValue, Page.class);
+            return ResultUtils.success(cachedPage);
+        }
+        //4. 本地缓存和 Redis 分布式缓存都没有命中，则查询数据库并更新本地缓存和 Redis 分布式缓存
+        Page<Picture> picturePage = pictureService.page(new Page<>(current, size), pictureService.getQueryWrapper(pictureQueryRequest));
+        //获取封装类
+        Page<PictureVO> pictureVOPage = pictureService.getPictureVOPage(picturePage, request);
+        //将查询结果存入缓存
+        String cacheValue = JSONUtil.toJsonStr(pictureVOPage);
+        //更新本地缓存
+        LOCAL_CACHE.put(cacheKey, cacheValue);
+        //更新 Redis 缓存，设置过期时间
+        valueOps.set(cacheKey, cacheValue, 5, TimeUnit.MINUTES);
         //返回结果
         return ResultUtils.success(pictureVOPage);
     }
