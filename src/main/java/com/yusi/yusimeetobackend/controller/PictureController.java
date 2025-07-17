@@ -3,6 +3,8 @@ package com.yusi.yusimeetobackend.controller;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.yusi.yusimeetobackend.annotation.AuthCheck;
 import com.yusi.yusimeetobackend.common.BaseResponse;
 import com.yusi.yusimeetobackend.common.DeleteRequest;
@@ -54,6 +56,17 @@ public class PictureController {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    /**
+     * 构造 Caffeine 缓存容器
+     */
+    private final Cache<String, String> LOCAL_CACHE =
+            Caffeine.newBuilder().initialCapacity(1024)
+                    .maximumSize(10000L)
+                    // 缓存 5 分钟移除
+                    .expireAfterWrite(5L, TimeUnit.MINUTES)
+                    .build();
+
 
     /**
      * 上传图片（可重新上传）
@@ -204,7 +217,7 @@ public class PictureController {
      * @param request
      * @return
      */
-    @PostMapping("/list/page/vo/cache")
+    /* @PostMapping("/list/page/vo/cache")
     public BaseResponse<Page<PictureVO>> listPictureVOByPageWithCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest request) {
         //获取当前页号
         long current = pictureQueryRequest.getCurrent();
@@ -243,10 +256,52 @@ public class PictureController {
 
         //返回结果
         return ResultUtils.success(pictureVOPage);
+    } */
 
 
+    /**
+     * 利用 Caffeine 缓存查询数据
+     * @param pictureQueryRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/list/page/vo/cache")
+    public BaseResponse<Page<PictureVO>> listPictureVOByPageWithCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest request) {
+        //获取当前页号
+        long current = pictureQueryRequest.getCurrent();
+        //获取每页大小
+        long size = pictureQueryRequest.getPageSize();
+        //限制爬虫
+        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        //普通用户默认只能查看已经过审的数据
+        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
+
+        //Caffeine 缓存
+        //1. 构建缓存 key
+        //这里直接将前端提供的查询条件作为 key，因为太多了，所以要压缩，转为 JSON 字符串
+        String queryCondition = JSONUtil.toJsonStr(pictureQueryRequest);
+        String hashKey = DigestUtils.md5DigestAsHex(queryCondition.getBytes());
+        //构造缓存 key，这里要分级，不同的业务或者不同的项目可以区分
+        String cacheKey = "meeto:listPictureVOByPage:" + hashKey;
+        //2. 从 Caffeine 缓存中查询
+        String cachedValue = LOCAL_CACHE.getIfPresent(cacheKey);
+        if (cachedValue != null) { //缓存命中
+            //返回结果
+            Page<PictureVO> cachedPage = JSONUtil.toBean(cachedValue, Page.class);
+            return ResultUtils.success(cachedPage);
+        }
+        //缓存未命中，查询数据库
+        Page<Picture> picturePage = pictureService.page(new Page<>(current, size), pictureService.getQueryWrapper(pictureQueryRequest));
+        //获取封装类
+        Page<PictureVO> pictureVOPage = pictureService.getPictureVOPage(picturePage, request);
+
+        //3. 将查询结果存入缓存
+        String cacheValue = JSONUtil.toJsonStr(pictureVOPage);
+        LOCAL_CACHE.put(cacheKey, cacheValue);
+
+        //返回结果
+        return ResultUtils.success(pictureVOPage);
     }
-
 
 
     /**
