@@ -2,6 +2,10 @@ server:
   port: 8123
   servlet:
     context-path: /api
+  # cookie 30 天过期
+  session:
+    cookie:
+      max-age: 2592000
 spring:
   application:
     name: yusi-meeto-backend
@@ -17,6 +21,10 @@ spring:
     port: 6379
     password:
     timeout: 5000
+  session:
+    store-type: redis
+    # session 30 天过期
+    timeout: 2592000
   servlet:
     multipart:
       max-file-size: 10MB
