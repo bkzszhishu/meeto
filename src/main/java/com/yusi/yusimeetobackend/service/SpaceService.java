@@ -1,6 +1,8 @@
 package com.yusi.yusimeetobackend.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.yusi.yusimeetobackend.model.dto.space.SpaceQueryRequest;
 import com.yusi.yusimeetobackend.model.entity.Space;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.yusi.yusimeetobackend.model.vo.SpaceVO;
@@ -21,5 +23,11 @@ public interface SpaceService extends IService<Space> {
      */
     void validSpace(Space space, boolean add);
 
+    SpaceVO getSpaceVO(Space space, HttpServletRequest request);
+
     Page<SpaceVO> getSpaceVOPage(Page<Space> spacePage, HttpServletRequest request);
+
+    QueryWrapper<Space> getQueryWrapper(SpaceQueryRequest spaceQueryRequest);
+
+    void fillSpaceBySpaceLevel(Space space);
 }

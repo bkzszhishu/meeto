@@ -1,12 +1,15 @@
 package com.yusi.yusimeetobackend.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.yusi.yusimeetobackend.exception.BusinessException;
 import com.yusi.yusimeetobackend.exception.ErrorCode;
 import com.yusi.yusimeetobackend.exception.ThrowUtils;
+import com.yusi.yusimeetobackend.model.dto.space.SpaceQueryRequest;
 import com.yusi.yusimeetobackend.model.entity.Space;
 import com.yusi.yusimeetobackend.model.entity.User;
 import com.yusi.yusimeetobackend.model.enums.SpaceLevelEnum;
@@ -73,6 +76,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
      * @param request
      * @return
      */
+    @Override
     public SpaceVO getSpaceVO(Space space, HttpServletRequest request) {
         //对象转封装类
         SpaceVO spaceVO = SpaceVO.objToVo(space);
@@ -115,6 +119,60 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
         spaceVOPage.setRecords(spaceVOList);
         return spaceVOPage;
     }
+
+    /**
+     * 封装查询条件对象
+     * @param spaceQueryRequest
+     * @return
+     */
+    @Override
+    public QueryWrapper<Space> getQueryWrapper(SpaceQueryRequest spaceQueryRequest) {
+
+        QueryWrapper<Space> queryWrapper = new QueryWrapper<>();
+        if (spaceQueryRequest == null) {
+            return queryWrapper;
+        }
+        //从对象中取值
+        Long id = spaceQueryRequest.getId();
+        Long userId = spaceQueryRequest.getUserId();
+        String spaceName = spaceQueryRequest.getSpaceName();
+        Integer spaceLevel = spaceQueryRequest.getSpaceLevel();
+        String sortField = spaceQueryRequest.getSortField();
+        String sortOrder = spaceQueryRequest.getSortOrder();
+
+        //拼接查询条件
+        queryWrapper.eq(ObjUtil.isNotEmpty(id), "id", id);
+        queryWrapper.eq(ObjUtil.isNotEmpty(userId), "userId", userId);
+        queryWrapper.like(StrUtil.isNotBlank(spaceName), "spaceName", spaceName);
+        queryWrapper.eq(ObjUtil.isNotEmpty(spaceLevel), "spaceLevel", spaceLevel);
+        //排序
+        queryWrapper.orderBy(StrUtil.isNotEmpty(sortField), sortOrder.equals("ascend"), sortField);
+
+        return queryWrapper;
+    }
+
+    /**
+     * 管理员可以灵活调整空间的最大容量和最大文件数，而不是使用默认的，这个方法用户填充管理员的对于空间的信息
+     * @param space
+     */
+    @Override
+    public void fillSpaceBySpaceLevel(Space space) {
+        //根据空间级别获取空间枚举类
+        SpaceLevelEnum spaceLevelEnum = SpaceLevelEnum.getEnumByValue(space.getSpaceLevel());
+        if (spaceLevelEnum != null) {
+            long maxSize = spaceLevelEnum.getMaxSize();
+            //如果管理员没有指定容量，则使用默认的
+            if (space.getMaxSize() == null) {
+                space.setMaxSize(maxSize);
+            }
+            long maxCount = spaceLevelEnum.getMaxCount();
+            //如果管理员没有指定文件数，则使用默认的
+            if (space.getMaxCount() == null) {
+                space.setMaxCount(maxCount);
+            }
+        }
+    }
+
 
 
 }
