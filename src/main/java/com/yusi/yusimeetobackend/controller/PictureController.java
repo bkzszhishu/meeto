@@ -28,6 +28,7 @@ import org.bouncycastle.util.Pack;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -61,6 +62,9 @@ public class PictureController {
 
     @Resource
     private SpaceService spaceService;
+
+    @Resource
+    private TransactionTemplate transactionTemplate;
 
     /**
      * 构造 Caffeine 缓存容器
@@ -133,9 +137,26 @@ public class PictureController {
         ThrowUtils.throwIf(oldPicture == null, ErrorCode.NOT_FOUND_ERROR);
         //仅本人或者管理员可以删除图片
         pictureService.checkPictureAuth(loginUser, oldPicture);
-        //操作数据库
-        boolean result = pictureService.removeById(id);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        //操作数据库,删除图片并更新空间容量
+        //开启事务
+        transactionTemplate.execute(status -> {
+            //操作数据库
+            boolean result = pictureService.removeById(id);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+            //释放额度
+            Long spaceId = oldPicture.getSpaceId();
+            if (spaceId != null) {
+                boolean update = spaceService.lambdaUpdate()
+                        .eq(Space::getId, spaceId)
+                        .setSql("totalSize = totalSize - " + oldPicture.getPicSize())
+                        .setSql("totalCount = totalCount - 1")
+                        .update();
+                ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR, "更新额度失败");
+            }
+            return true;
+        });
+        //异步清理文件
+        pictureService.clearPictureFile(oldPicture);
         return ResultUtils.success(true);
     }
 

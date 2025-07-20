@@ -30,6 +30,7 @@ import com.yusi.yusimeetobackend.mapper.PictureMapper;
 import com.yusi.yusimeetobackend.service.SpaceService;
 import com.yusi.yusimeetobackend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.transaction.Transaction;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -37,6 +38,7 @@ import org.jsoup.select.Elements;
 import org.springframework.beans.BeanUtils;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -75,6 +77,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Resource
     private SpaceService spaceService;
 
+    @Resource
+    private TransactionTemplate transactionTemplate;
+
     /**
      * 上传图片
      * @param inputSource 文件上传，可以通过源文件上传，也可以通过 url 上传
@@ -94,6 +99,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             //必须空间创建人才能上传图片
             if (!loginUser.getId().equals(space.getUserId())) {
                 throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "没有空间权限");
+            }
+            //校验额度
+            if (space.getTotalCount() >= space.getMaxCount()) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间条数不足");
+            }
+            if (space.getTotalSize() >= space.getMaxSize()) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间大小不足");
             }
         }
         // 用于判断是新增还是更新图片
@@ -168,8 +180,21 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             picture.setEditTime(new Date());
         }
 
-        boolean result = this.saveOrUpdate(picture); //这个方法会自动判断 id 是否为空，如果为空则新增，否则更新
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "图片上传失败");
+        //操作数据，添加图片，并修改空间额度
+        //开启事务
+        Long finalSpaceId = spaceId;
+        transactionTemplate.execute(status -> {
+            boolean result = this.saveOrUpdate(picture); //这个方法会自动判断 id 是否为空，如果为空则新增，否则更新
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "图片上传失败");
+            if (finalSpaceId != null) {
+                boolean update = spaceService.lambdaUpdate()
+                        .eq(Space::getId, finalSpaceId)
+                        .setSql("totalSize = totalSize + " + picture.getPicSize())
+                        .setSql("totalCount = totalCount + 1")
+                        .update();
+            }
+            return picture;
+        });
         return PictureVO.objToVo(picture); //将图片对象转换成图片视图对象并返回
     }
 
@@ -468,6 +493,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     }
 
 
+    /**
+     * 校验图片权限
+     * @param loginUser
+     * @param picture
+     */
     @Override
     public void checkPictureAuth(User loginUser, Picture picture) {
         Long spaceId = picture.getSpaceId();

@@ -15,6 +15,7 @@ import com.yusi.yusimeetobackend.exception.ThrowUtils;
 import com.yusi.yusimeetobackend.model.dto.space.*;
 import com.yusi.yusimeetobackend.model.entity.Space;
 import com.yusi.yusimeetobackend.model.entity.User;
+import com.yusi.yusimeetobackend.model.enums.SpaceLevelEnum;
 import com.yusi.yusimeetobackend.model.vo.SpaceVO;
 import com.yusi.yusimeetobackend.service.SpaceService;
 import com.yusi.yusimeetobackend.service.UserService;
@@ -32,6 +33,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * @Author: 止束
@@ -202,6 +204,19 @@ public class SpaceController {
         long newId = spaceService.addSpace(spaceAddRequest, loginUser);
         return ResultUtils.success(newId);
     }
+
+    @GetMapping("/list/level")
+    public BaseResponse<List<SpaceLevel>> listSpaceLevel() {
+        List<SpaceLevel> spaceLevelList = Arrays.stream(SpaceLevelEnum.values()) // 获取所有枚举
+                .map(spaceLevelEnum -> new SpaceLevel(
+                        spaceLevelEnum.getValue(),
+                        spaceLevelEnum.getText(),
+                        spaceLevelEnum.getMaxCount(),
+                        spaceLevelEnum.getMaxSize()))
+                .collect(Collectors.toList());
+        return ResultUtils.success(spaceLevelList);
+    }
+
 
 
 }
