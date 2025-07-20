@@ -20,12 +20,14 @@ import com.yusi.yusimeetobackend.model.dto.picture.PictureReviewRequest;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureUploadByBatchRequest;
 import com.yusi.yusimeetobackend.model.dto.picture.PictureUploadRequest;
 import com.yusi.yusimeetobackend.model.entity.Picture;
+import com.yusi.yusimeetobackend.model.entity.Space;
 import com.yusi.yusimeetobackend.model.entity.User;
 import com.yusi.yusimeetobackend.model.enums.PictureReviewStatusEnum;
 import com.yusi.yusimeetobackend.model.vo.PictureVO;
 import com.yusi.yusimeetobackend.model.vo.UserVO;
 import com.yusi.yusimeetobackend.service.PictureService;
 import com.yusi.yusimeetobackend.mapper.PictureMapper;
+import com.yusi.yusimeetobackend.service.SpaceService;
 import com.yusi.yusimeetobackend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -70,6 +72,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Resource
     private CosManager cosManager;
 
+    @Resource
+    private SpaceService spaceService;
+
     /**
      * 上传图片
      * @param inputSource 文件上传，可以通过源文件上传，也可以通过 url 上传
@@ -81,6 +86,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     public PictureVO uploadPicture(Object inputSource, PictureUploadRequest pictureUploadRequest, User loginUser) {
         //校验：如果用户未登录，则不允许上传图片
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
+        //校验空间是否存在
+        Long spaceId = pictureUploadRequest.getSpaceId();
+        if (spaceId != null) {
+            Space space = spaceService.getById(spaceId);
+            ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
+            //必须空间创建人才能上传图片
+            if (!loginUser.getId().equals(space.getUserId())) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "没有空间权限");
+            }
+        }
         // 用于判断是新增还是更新图片
         Long pictureId = null;
         if (pictureUploadRequest != null) {
@@ -94,11 +109,29 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             if (!oldPicture.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
                 throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
             }
+            //校验空间是否一致
+            //没传 spaceId，则复用原有图片的 spaceId
+            if (spaceId == null) {
+                if (oldPicture.getSpaceId() != null) {
+                    spaceId = oldPicture.getSpaceId();
+                }
+            } else {
+                //传了 spaceId，必须和原有图片的 spaceId 一致
+                if (ObjUtil.notEqual(spaceId, oldPicture.getSpaceId())) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "空间 id 不一致");
+                }
+            }
         }
 
         // 上传图片，得到信息
         // 按照用户 id 划分目录，这里还要划分是私有的还是公有的，因为后面的图片管理会分是私有的图片还是公有的
-        String uploadPathPrefix = String.format("public/%s", loginUser.getId());
+        //按照用户 id 划分目录
+        String uploadPathPrefix;
+        if (spaceId == null) {
+            uploadPathPrefix = String.format("public/%s", loginUser.getId());
+        } else {
+            uploadPathPrefix = String.format("space/%s", spaceId);
+        }
         //根据 inputSource 的类型区分上传方式
         PictureUploadTemplate pictureUploadTemplate = filePictureUpload; //默认是通过文件上传
         if (inputSource instanceof String) {
@@ -109,6 +142,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
 
         // 拿到返回的上传后的图片的信息后就要把上传完的图片存入到数据库，构造要入库的图片信息
         Picture picture = new Picture();
+        //补充设置 spaceId
+        picture.setSpaceId(spaceId);
         //设置图片在 COS 的 url
         picture.setUrl(uploadPictureResult.getUrl());
         //设置缩略图的 url
@@ -213,6 +248,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         return uploadCount;
     }
 
+    /**
+     * 根据传入的查询条件，封装查询条件对象
+     * @param pictureQueryRequest
+     * @return
+     */
     @Override
     public QueryWrapper<Picture> getQueryWrapper(PictureQueryRequest pictureQueryRequest) {
         QueryWrapper<Picture> queryWrapper = new QueryWrapper<>();
@@ -234,6 +274,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         Long userId = pictureQueryRequest.getUserId();
         String sortField = pictureQueryRequest.getSortField();
         String sortOrder = pictureQueryRequest.getSortOrder();
+        Long spaceId = pictureQueryRequest.getSpaceId();
+        boolean nullSpaceId = pictureQueryRequest.isNullSpaceId();
         // 从多字段中搜索
         if (StrUtil.isNotBlank(searchText)) {
             // 需要拼接查询条件
@@ -244,6 +286,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         queryWrapper.eq(ObjUtil.isNotEmpty(id), "id", id);
         queryWrapper.eq(ObjUtil.isNotEmpty(userId), "userId", userId);
+        queryWrapper.eq(ObjUtil.isNotEmpty(spaceId), "spaceId", spaceId);
+        queryWrapper.isNull(nullSpaceId, "spaceId");
         queryWrapper.like(StrUtil.isNotBlank(name), "name", name);
         queryWrapper.like(StrUtil.isNotBlank(introduction), "introduction", introduction);
         queryWrapper.like(StrUtil.isNotBlank(picFormat), "picFormat", picFormat);
@@ -272,7 +316,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         return queryWrapper;
     }
 
-
+    /**
+     * 封装 PictureVO 对象，将用户信息加入
+     * @param picture
+     * @param request
+     * @return
+     */
     @Override
     public PictureVO getPictureVO(Picture picture, HttpServletRequest request) {
         // 对象转封装类
@@ -316,6 +365,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         return pictureVOPage;
     }
 
+    /**
+     * 校验图片对象
+     * @param picture
+     */
     @Override
     public void validPicture(Picture picture) {
         ThrowUtils.throwIf(picture == null, ErrorCode.PARAMS_ERROR);
@@ -388,6 +441,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
     }
 
+
+    /**
+     * 清理图片
+     * @param oldPicture
+     */
     @Async
     @Override
     public void clearPictureFile(Picture oldPicture) {
@@ -410,6 +468,23 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     }
 
 
+    @Override
+    public void checkPictureAuth(User loginUser, Picture picture) {
+        Long spaceId = picture.getSpaceId();
+        Long loginUserId = loginUser.getId();
+        if (spaceId == null) {
+            //是公共图库，仅上传本图片的本人和管理员操作
+            if (!picture.getUserId().equals(loginUserId) && !userService.isAdmin(loginUser)) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+            }
+        } else { //是私有图库
+            //仅本人可以操作
+            if (!picture.getUserId().equals(loginUserId)) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+            }
+
+        }
+    }
 
 
 

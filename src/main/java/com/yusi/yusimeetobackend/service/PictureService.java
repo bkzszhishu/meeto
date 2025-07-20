@@ -72,4 +72,6 @@ public interface PictureService extends IService<Picture> {
 
     @Async
     void clearPictureFile(Picture oldPicture);
+
+    void checkPictureAuth(User loginUser, Picture picture);
 }

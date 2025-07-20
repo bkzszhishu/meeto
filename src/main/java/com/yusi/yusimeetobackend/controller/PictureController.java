@@ -15,11 +15,13 @@ import com.yusi.yusimeetobackend.exception.ErrorCode;
 import com.yusi.yusimeetobackend.exception.ThrowUtils;
 import com.yusi.yusimeetobackend.model.dto.picture.*;
 import com.yusi.yusimeetobackend.model.entity.Picture;
+import com.yusi.yusimeetobackend.model.entity.Space;
 import com.yusi.yusimeetobackend.model.entity.User;
 import com.yusi.yusimeetobackend.model.enums.PictureReviewStatusEnum;
 import com.yusi.yusimeetobackend.model.vo.PictureTagCategory;
 import com.yusi.yusimeetobackend.model.vo.PictureVO;
 import com.yusi.yusimeetobackend.service.PictureService;
+import com.yusi.yusimeetobackend.service.SpaceService;
 import com.yusi.yusimeetobackend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.util.Pack;
@@ -56,6 +58,9 @@ public class PictureController {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private SpaceService spaceService;
 
     /**
      * 构造 Caffeine 缓存容器
@@ -127,9 +132,7 @@ public class PictureController {
         Picture oldPicture = pictureService.getById(id);
         ThrowUtils.throwIf(oldPicture == null, ErrorCode.NOT_FOUND_ERROR);
         //仅本人或者管理员可以删除图片
-        if (!oldPicture.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
-        }
+        pictureService.checkPictureAuth(loginUser, oldPicture);
         //操作数据库
         boolean result = pictureService.removeById(id);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -181,7 +184,7 @@ public class PictureController {
     }
 
     /**
-     * 根据 id 获取图片（封装类）
+     * 根据 id 获取图片（封装类），普通用户用
      */
     @GetMapping("/get/vo")
     public BaseResponse<PictureVO> getPictureVOById(long id, HttpServletRequest request) {
@@ -189,6 +192,12 @@ public class PictureController {
         // 查询数据库
         Picture picture = pictureService.getById(id);
         ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUND_ERROR);
+        //获取查询到的图片的空间 id，如果为空说明是公共空间图片可以返回，如果不为空说明是私有空间的图片，判断是否是当前登录用户的空间，如果是返回，不是则报错
+        Long spaceId = picture.getSpaceId();
+        if (spaceId != null) {
+            User loginUser = userService.getLoginUser(request);
+            pictureService.checkPictureAuth(loginUser, picture);
+        }
         // 获取封装类
         return ResultUtils.success(pictureService.getPictureVO(picture, request));
     }
@@ -208,17 +217,31 @@ public class PictureController {
     }
 
     /**
-     * 分页获取图片列表（封装类）
+     * 分页获取图片列表（封装类）,普通用户用
      */
     @PostMapping("/list/page/vo")
     public BaseResponse<Page<PictureVO>> listPictureVOByPage(@RequestBody PictureQueryRequest pictureQueryRequest,
                                                              HttpServletRequest request) {
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
+        Long spaceId = pictureQueryRequest.getSpaceId();
+        //公开图库
+        if (spaceId == null) {
+            //这里设置 reviewStatus 为已审核通过状态，给用户返回的都是审核通过的图片
+            pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
+            //这里设置为 true 表名要查询空间 id 为空的图片
+            pictureQueryRequest.setNullSpaceId(true);
+        } else {
+            //私有空间
+            User loginUser = userService.getLoginUser(request);
+            Space space = spaceService.getById(spaceId);
+            ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
+            if (!loginUser.getId().equals(space.getUserId())) { //如果登录用户不是空间创建用户
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "没有空间权限");
+            }
+        }
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
-        //这里设置 reviewStatus 为已审核通过状态，给用户返回的都是审核通过的图片
-        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
         // 查询数据库
         Page<Picture> picturePage = pictureService.page(new Page<>(current, size),
                 pictureService.getQueryWrapper(pictureQueryRequest));
@@ -324,6 +347,7 @@ public class PictureController {
      * @param request
      * @return
      */
+    @Deprecated
     @PostMapping("/list/page/vo/cache")
     public BaseResponse<Page<PictureVO>> listPictureVOByPageWithCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest request) {
         //获取当前页号
@@ -398,9 +422,7 @@ public class PictureController {
         Picture oldPicture = pictureService.getById(id);
         ThrowUtils.throwIf(oldPicture == null, ErrorCode.NOT_FOUND_ERROR);
         // 仅本人或管理员可编辑
-        if (!oldPicture.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
-        }
+        pictureService.checkPictureAuth(loginUser, oldPicture);
         // 操作数据库
         boolean result = pictureService.updateById(picture);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
