@@ -232,6 +232,13 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
         }
     }
 
+    @Override
+    public void checkSpaceAuth(User loginUser, Space space) {
+        //仅本人或者管理员可以删除空间
+        if (!space.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+    }
 
 
 }
